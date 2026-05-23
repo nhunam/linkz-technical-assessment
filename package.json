@@ -1,0 +1,18 @@
+{
+  "name": "seat-reservation",
+  "private": true,
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  },
+  "scripts": {
+    "dev": "pnpm --parallel -r run dev",
+    "dev:be": "pnpm --filter @seat-reservation/be run dev",
+    "dev:fe": "pnpm --filter @seat-reservation/fe run dev",
+    "lint": "biome check .",
+    "format": "biome format --write ."
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}
