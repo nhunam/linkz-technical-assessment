@@ -10,6 +10,7 @@ type Seat = {
   status: "available" | "held" | "reserved";
   heldBy: string | null;
   heldUntil: string | null;
+  reservedBy: string | null;
 };
 
 export function SeatsPage() {
@@ -73,11 +74,17 @@ export function SeatsPage() {
     navigate("/login");
   }
 
+  function getSeatState(seat: Seat) {
+    const isMine = seat.heldBy === user?.id || seat.reservedBy === user?.id;
+    if (isMine) return "mine" as const;
+    if (seat.status === "available") return "available" as const;
+    return "unavailable" as const;
+  }
+
   function getSeatColor(seat: Seat) {
-    if (seat.status === "reserved") return "bg-red-100 border-red-300";
-    if (seat.status === "held" && seat.heldBy === user?.id)
-      return "bg-blue-100 border-blue-400";
-    if (seat.status === "held") return "bg-yellow-100 border-yellow-300";
+    const state = getSeatState(seat);
+    if (state === "mine") return "bg-blue-50 border-blue-400";
+    if (state === "unavailable") return "bg-gray-100 border-gray-300 opacity-60";
     return "bg-green-50 border-green-300 hover:bg-green-100";
   }
 
@@ -124,32 +131,27 @@ export function SeatsPage() {
 
         <div className="mb-6">
           <h2 className="text-lg font-semibold mb-2">Available Seats</h2>
-          <div className="flex gap-3 text-xs text-gray-500">
+          <div className="flex gap-4 text-xs text-gray-500">
             <span className="flex items-center gap-1">
               <span className="w-3 h-3 rounded bg-green-200 border border-green-400" />
               Available
             </span>
             <span className="flex items-center gap-1">
               <span className="w-3 h-3 rounded bg-blue-200 border border-blue-400" />
-              Held by you
+              Yours
             </span>
             <span className="flex items-center gap-1">
-              <span className="w-3 h-3 rounded bg-yellow-200 border border-yellow-400" />
-              Held by others
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-3 h-3 rounded bg-red-200 border border-red-400" />
-              Reserved
+              <span className="w-3 h-3 rounded bg-gray-200 border border-gray-400" />
+              Unavailable
             </span>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {seats.map((seat) => {
-            const isMyHold =
-              seat.status === "held" && seat.heldBy === user?.id;
-            const isActionable =
-              seat.status === "available" || isMyHold;
+            const state = getSeatState(seat);
+            const isMyHold = seat.status === "held" && seat.heldBy === user?.id;
+            const isMyReservation = seat.status === "reserved" && seat.reservedBy === user?.id;
 
             return (
               <div
@@ -161,21 +163,20 @@ export function SeatsPage() {
                   {formatPrice(seat.price)}
                 </p>
 
-                <p className="text-sm text-gray-500 mb-4 capitalize">
-                  {seat.status === "held" && isMyHold
-                    ? "Held by you"
-                    : seat.status}
+                <p className="text-sm text-gray-500 mb-4">
+                  {state === "mine" && isMyHold && "Held by you"}
+                  {state === "mine" && isMyReservation && "Reserved by you"}
+                  {state === "available" && "Available"}
+                  {state === "unavailable" && "Unavailable"}
                 </p>
 
-                {seat.status === "available" && (
+                {state === "available" && (
                   <button
                     onClick={() => handleHold(seat.id)}
                     disabled={actionLoading === seat.id}
                     className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors"
                   >
-                    {actionLoading === seat.id
-                      ? "Holding..."
-                      : "Select Seat"}
+                    {actionLoading === seat.id ? "Holding..." : "Select Seat"}
                   </button>
                 )}
 
@@ -195,18 +196,6 @@ export function SeatsPage() {
                       Release
                     </button>
                   </div>
-                )}
-
-                {seat.status === "reserved" && (
-                  <p className="text-sm text-red-600 font-medium">
-                    This seat has been reserved
-                  </p>
-                )}
-
-                {seat.status === "held" && !isMyHold && (
-                  <p className="text-sm text-yellow-700 font-medium">
-                    Currently held by another user
-                  </p>
                 )}
               </div>
             );
