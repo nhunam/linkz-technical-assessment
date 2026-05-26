@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { useSession, signOut } from "../../lib/auth-client";
+import { useAuth, useUser } from "../../lib/auth-client";
 import { api } from "../../lib/api";
 
 type Seat = {
@@ -13,7 +13,8 @@ type Seat = {
 };
 
 export function SeatsPage() {
-  const { data: session } = useSession();
+  const { signOut } = useAuth();
+  const { user } = useUser();
   const navigate = useNavigate();
   const [seats, setSeats] = useState<Seat[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,7 +75,7 @@ export function SeatsPage() {
 
   function getSeatColor(seat: Seat) {
     if (seat.status === "reserved") return "bg-red-100 border-red-300";
-    if (seat.status === "held" && seat.heldBy === session?.user?.id)
+    if (seat.status === "held" && seat.heldBy === user?.id)
       return "bg-blue-100 border-blue-400";
     if (seat.status === "held") return "bg-yellow-100 border-yellow-300";
     return "bg-green-50 border-green-300 hover:bg-green-100";
@@ -102,7 +103,7 @@ export function SeatsPage() {
           <h1 className="text-xl font-bold">Seat Reservation</h1>
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-600">
-              {session?.user?.name}
+              {user?.fullName}
             </span>
             <button
               onClick={handleSignOut}
@@ -146,7 +147,7 @@ export function SeatsPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {seats.map((seat) => {
             const isMyHold =
-              seat.status === "held" && seat.heldBy === session?.user?.id;
+              seat.status === "held" && seat.heldBy === user?.id;
             const isActionable =
               seat.status === "available" || isMyHold;
 
@@ -213,7 +214,7 @@ export function SeatsPage() {
         </div>
 
         {seats.some(
-          (s) => s.status === "held" && s.heldBy === session?.user?.id
+          (s) => s.status === "held" && s.heldBy === user?.id
         ) && (
           <p className="mt-4 text-sm text-gray-500 text-center">
             Your hold expires in 10 minutes. Complete payment to confirm your

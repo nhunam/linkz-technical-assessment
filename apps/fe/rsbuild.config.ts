@@ -1,10 +1,13 @@
-import { defineConfig } from "@rsbuild/core";
+import { defineConfig, loadEnv } from "@rsbuild/core";
 import { pluginReact } from "@rsbuild/plugin-react";
+
+const { publicVars } = loadEnv({ prefixes: ["PUBLIC_"], cwd: "../.." });
 
 export default defineConfig({
   plugins: [pluginReact()],
   source: {
     entry: { index: "./src/index.tsx" },
+    define: publicVars,
   },
   server: {
     port: 3031,

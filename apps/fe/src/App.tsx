@@ -1,19 +1,31 @@
+import { useEffect } from "react";
 import {
   BrowserRouter,
   Routes,
   Route,
   Navigate,
 } from "react-router-dom";
-import { useSession } from "./lib/auth-client";
+import { useAuth } from "./lib/auth-client";
+import { setAuthTokenGetter } from "./lib/api";
 import { LoginPage } from "./features/auth/login-page";
 import { SignupPage } from "./features/auth/signup-page";
 import { SeatsPage } from "./features/seats/seats-page";
 import { PaymentPage } from "./features/payment/payment-page";
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { data: session, isPending } = useSession();
+function AuthTokenSync() {
+  const { getToken } = useAuth();
 
-  if (isPending) {
+  useEffect(() => {
+    setAuthTokenGetter(getToken);
+  }, [getToken]);
+
+  return null;
+}
+
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { isSignedIn, isLoaded } = useAuth();
+
+  if (!isLoaded) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <p className="text-gray-500">Loading...</p>
@@ -21,7 +33,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!session?.user) {
+  if (!isSignedIn) {
     return <Navigate to="/login" replace />;
   }
 
@@ -29,9 +41,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function GuestRoute({ children }: { children: React.ReactNode }) {
-  const { data: session, isPending } = useSession();
+  const { isSignedIn, isLoaded } = useAuth();
 
-  if (isPending) {
+  if (!isLoaded) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <p className="text-gray-500">Loading...</p>
@@ -39,7 +51,7 @@ function GuestRoute({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (session?.user) {
+  if (isSignedIn) {
     return <Navigate to="/" replace />;
   }
 
@@ -49,6 +61,7 @@ function GuestRoute({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <BrowserRouter>
+      <AuthTokenSync />
       <Routes>
         <Route
           path="/login"

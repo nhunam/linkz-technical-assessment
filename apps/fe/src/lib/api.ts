@@ -1,9 +1,22 @@
 const BASE = "/api";
 
+type GetToken = () => Promise<string | null>;
+
+let _getToken: GetToken = async () => null;
+
+export function setAuthTokenGetter(getToken: GetToken) {
+  _getToken = getToken;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = await _getToken();
+
   const res = await fetch(`${BASE}${path}`, {
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...options?.headers },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options?.headers,
+    },
     ...options,
   });
 

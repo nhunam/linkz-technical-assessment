@@ -2,18 +2,18 @@
   "name": "@seat-reservation/be",
   "private": true,
   "scripts": {
-    "dev": "bun --watch src/main.ts",
+    "dev": "bun --env-file=../../.env --watch src/main.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "bun run src/db/migrate.ts",
-    "db:seed": "bun run src/db/seed.ts",
+    "db:migrate": "bun --env-file=../../.env run src/db/migrate.ts",
+    "db:seed": "bun --env-file=../../.env run src/db/seed.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@clerk/backend": "^3.4.13",
+    "@hono/zod-validator": "^0.5.0",
     "@seat-reservation/shared": "workspace:*",
-    "better-auth": "^1.2.0",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.7.0",
-    "@hono/zod-validator": "^0.5.0",
     "pg": "^8.13.0",
     "postgres": "^3.4.5",
     "zod": "^3.24.0"
