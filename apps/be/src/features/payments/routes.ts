@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { requireSession } from "../../middleware/session";
-import { createPaymentSchema, confirmPaymentSchema } from "@seat-reservation/shared";
-import { createPayment, confirmPayment, getUserPayments } from "./service";
+import { createPaymentSchema } from "@seat-reservation/shared";
+import { createPayment, getPaymentStatus, getUserPayments } from "./service";
 
 const app = new Hono()
   .post(
@@ -18,16 +18,19 @@ const app = new Hono()
         return c.json({ error: result.error }, 400);
       }
 
-      return c.json({ payment: result.payment }, 201);
+      return c.json(
+        { payment: result.payment, clientSecret: result.clientSecret },
+        201
+      );
     }
   )
-  .post(
-    "/:id/confirm",
+  .get(
+    "/:id/status",
     requireSession,
     async (c) => {
       const paymentId = c.req.param("id");
       const user = c.get("user");
-      const result = await confirmPayment(paymentId, user.id);
+      const result = await getPaymentStatus(paymentId, user.id);
 
       if ("error" in result) {
         return c.json({ error: result.error }, 400);

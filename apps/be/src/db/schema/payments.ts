@@ -13,6 +13,7 @@ export const paymentStatusEnum = pgEnum("payment_status", [
   "completed",
   "failed",
   "expired",
+  "refunded",
 ]);
 
 export const payments = pgTable("payments", {
@@ -23,6 +24,8 @@ export const payments = pgTable("payments", {
   userId: text("user_id").notNull(),
   amount: integer("amount").notNull(),
   status: paymentStatusEnum("status").notNull().default("pending"),
+  stripePaymentIntentId: text("stripe_payment_intent_id").unique(),
+  idempotencyKey: text("idempotency_key").unique(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

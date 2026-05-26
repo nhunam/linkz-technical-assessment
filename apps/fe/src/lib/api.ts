@@ -39,14 +39,13 @@ export const api = {
     request<{ seat: any }>(`/seats/${seatId}/release`, { method: "POST" }),
 
   createPayment: (seatId: string) =>
-    request<{ payment: any }>("/payments", {
+    request<{ payment: any; clientSecret: string }>("/payments", {
       method: "POST",
       body: JSON.stringify({ seatId }),
     }),
 
-  confirmPayment: (paymentId: string) =>
+  getPaymentStatus: (paymentId: string) =>
     request<{ payment: any; reservation: any }>(
-      `/payments/${paymentId}/confirm`,
-      { method: "POST" }
+      `/payments/${paymentId}/status`
     ),
 };

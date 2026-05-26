@@ -1,6 +1,6 @@
 import { eq, and } from "drizzle-orm";
 import { db, payments, seats, reservations } from "../../db";
-import { reserveSeat } from "../seats/service";
+import { stripe } from "../../lib/stripe";
 
 export async function createPayment(seatId: string, userId: string) {
   const [seat] = await db.select().from(seats).where(eq(seats.id, seatId));
@@ -13,8 +13,21 @@ export async function createPayment(seatId: string, userId: string) {
     return { error: "You must hold this seat before paying" as const };
   }
 
-  // Payment expires in 10 minutes
+  const idempotencyKey = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+  const paymentIntent = await stripe.paymentIntents.create(
+    {
+      amount: seat.price,
+      currency: "usd",
+      metadata: {
+        seatId,
+        userId,
+        idempotencyKey,
+      },
+    },
+    { idempotencyKey }
+  );
 
   const [payment] = await db
     .insert(payments)
@@ -23,15 +36,17 @@ export async function createPayment(seatId: string, userId: string) {
       userId,
       amount: seat.price,
       status: "pending",
+      stripePaymentIntentId: paymentIntent.id,
+      idempotencyKey,
       expiresAt,
     })
     .returning();
 
-  return { payment };
+  return { payment, clientSecret: paymentIntent.client_secret };
 }
 
-export async function confirmPayment(paymentId: string, userId: string) {
-  const [payment] = await db
+export async function getPaymentStatus(paymentId: string, userId: string) {
+  let [payment] = await db
     .select()
     .from(payments)
     .where(and(eq(payments.id, paymentId), eq(payments.userId, userId)));
@@ -40,56 +55,73 @@ export async function confirmPayment(paymentId: string, userId: string) {
     return { error: "Payment not found" as const };
   }
 
-  if (payment.status !== "pending") {
-    return { error: `Payment is already ${payment.status}` as const };
+  if (payment.status === "pending" && payment.stripePaymentIntentId) {
+    const pi = await stripe.paymentIntents.retrieve(payment.stripePaymentIntentId);
+    if (pi.status === "succeeded") {
+      await completePayment(payment);
+      [payment] = await db
+        .select()
+        .from(payments)
+        .where(eq(payments.id, paymentId));
+    }
   }
 
-  if (new Date(payment.expiresAt) < new Date()) {
-    await db
+  const [reservation] = payment.status === "completed"
+    ? await db
+        .select()
+        .from(reservations)
+        .where(eq(reservations.paymentId, payment.id))
+    : [null];
+
+  return { payment, reservation };
+}
+
+async function completePayment(payment: typeof payments.$inferSelect) {
+  await db.transaction(async (tx) => {
+    const [fresh] = await tx
+      .select()
+      .from(payments)
+      .where(eq(payments.id, payment.id));
+
+    if (!fresh || fresh.status !== "pending") return;
+
+    const [seat] = await tx
+      .select()
+      .from(seats)
+      .where(eq(seats.id, fresh.seatId));
+
+    if (!seat || seat.status !== "held" || seat.heldBy !== fresh.userId) {
+      await tx
+        .update(payments)
+        .set({ status: "refunded" })
+        .where(eq(payments.id, fresh.id));
+      return;
+    }
+
+    await tx
       .update(payments)
-      .set({ status: "expired" })
-      .where(eq(payments.id, paymentId));
-    return { error: "Payment has expired" as const };
-  }
+      .set({ status: "completed" })
+      .where(eq(payments.id, fresh.id));
 
-  // Mark payment as completed
-  const [updated] = await db
-    .update(payments)
-    .set({ status: "completed" })
-    .where(
-      and(
-        eq(payments.id, paymentId),
-        eq(payments.status, "pending") // optimistic concurrency
-      )
-    )
-    .returning();
+    await tx
+      .update(seats)
+      .set({
+        status: "reserved",
+        reservedBy: fresh.userId,
+        heldBy: null,
+        heldUntil: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(seats.id, fresh.seatId));
 
-  if (!updated) {
-    return { error: "Payment could not be processed" as const };
-  }
-
-  // Reserve the seat
-  const reserved = await reserveSeat(payment.seatId, userId);
-  if (!reserved) {
-    // Rollback payment if seat reservation fails
-    await db
-      .update(payments)
-      .set({ status: "failed" })
-      .where(eq(payments.id, paymentId));
-    return { error: "Seat reservation failed — payment has been reversed" as const };
-  }
-
-  // Create reservation record
-  const [reservation] = await db
-    .insert(reservations)
-    .values({
-      seatId: payment.seatId,
-      userId,
-      paymentId: payment.id,
-    })
-    .returning();
-
-  return { payment: updated, reservation };
+    await tx
+      .insert(reservations)
+      .values({
+        seatId: fresh.seatId,
+        userId: fresh.userId,
+        paymentId: fresh.id,
+      });
+  });
 }
 
 export async function getUserPayments(userId: string) {

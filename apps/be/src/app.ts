@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import seatRoutes from "./features/seats/routes";
 import paymentRoutes from "./features/payments/routes";
+import webhookRoutes from "./features/webhooks/routes";
 import generalRoutes from "./features/general/routes";
 
 const app = new Hono();
@@ -20,5 +21,6 @@ app.use("*", logger());
 app.route("/api", generalRoutes);
 app.route("/api/seats", seatRoutes);
 app.route("/api/payments", paymentRoutes);
+app.route("/api/webhooks", webhookRoutes);
 
 export default app;

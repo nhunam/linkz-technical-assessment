@@ -1,11 +1,27 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { loadStripe } from "@stripe/stripe-js";
+import {
+  Elements,
+  PaymentElement,
+  useStripe,
+  useElements,
+} from "@stripe/react-stripe-js";
 import { api } from "../../lib/api";
+
+declare const process: { env: Record<string, string | undefined> };
+const stripePromise = loadStripe(
+  process.env.PUBLIC_STRIPE_PUBLISHABLE_KEY!
+);
 
 type PaymentState =
   | { step: "loading" }
-  | { step: "confirm"; payment: any; seatLabel: string }
-  | { step: "processing" }
+  | {
+      step: "checkout";
+      payment: any;
+      clientSecret: string;
+      seatLabel: string;
+    }
   | { step: "success"; reservation: any }
   | { step: "error"; message: string };
 
@@ -14,8 +30,11 @@ export function PaymentPage() {
   const navigate = useNavigate();
   const [state, setState] = useState<PaymentState>({ step: "loading" });
 
+  const initRef = useRef(false);
+
   useEffect(() => {
-    if (!seatId) return;
+    if (!seatId || initRef.current) return;
+    initRef.current = true;
 
     async function initPayment() {
       try {
@@ -23,8 +42,8 @@ export function PaymentPage() {
         const seat = seatsData.seats.find((s: any) => s.id === seatId);
         const seatLabel = seat?.label || "Unknown Seat";
 
-        const { payment } = await api.createPayment(seatId!);
-        setState({ step: "confirm", payment, seatLabel });
+        const { payment, clientSecret } = await api.createPayment(seatId!);
+        setState({ step: "checkout", payment, clientSecret, seatLabel });
       } catch (err: any) {
         setState({ step: "error", message: err.message });
       }
@@ -32,24 +51,6 @@ export function PaymentPage() {
 
     initPayment();
   }, [seatId]);
-
-  async function handleConfirm() {
-    if (state.step !== "confirm") return;
-
-    setState({ step: "processing" });
-
-    // Simulate payment gateway delay (1-3 seconds)
-    await new Promise((resolve) =>
-      setTimeout(resolve, 1000 + Math.random() * 2000)
-    );
-
-    try {
-      const result = await api.confirmPayment(state.payment.id);
-      setState({ step: "success", reservation: result.reservation });
-    } catch (err: any) {
-      setState({ step: "error", message: err.message });
-    }
-  }
 
   function formatPrice(cents: number) {
     return new Intl.NumberFormat("en-US", {
@@ -65,61 +66,22 @@ export function PaymentPage() {
           <p className="text-center text-gray-500">Preparing payment...</p>
         )}
 
-        {state.step === "confirm" && (
-          <>
-            <h1 className="text-2xl font-bold text-center mb-6">
-              Confirm Payment
-            </h1>
-
-            <div className="bg-gray-50 rounded-lg p-4 mb-6">
-              <div className="flex justify-between mb-2">
-                <span className="text-gray-600">Seat</span>
-                <span className="font-semibold">{state.seatLabel}</span>
-              </div>
-              <div className="flex justify-between mb-2">
-                <span className="text-gray-600">Amount</span>
-                <span className="font-semibold">
-                  {formatPrice(state.payment.amount)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Payment method</span>
-                <span className="text-sm text-gray-500">
-                  Mock Payment (Demo)
-                </span>
-              </div>
-            </div>
-
-            <p className="text-xs text-gray-400 mb-4 text-center">
-              This is a mock payment for demonstration purposes. No real charge
-              will be made.
-            </p>
-
-            <div className="space-y-2">
-              <button
-                onClick={handleConfirm}
-                className="w-full py-3 px-4 bg-green-600 text-white rounded-md hover:bg-green-700 font-semibold transition-colors"
-              >
-                Pay {formatPrice(state.payment.amount)}
-              </button>
-              <button
-                onClick={() => navigate("/")}
-                className="w-full py-2 px-4 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </>
-        )}
-
-        {state.step === "processing" && (
-          <div className="text-center">
-            <div className="animate-spin w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4" />
-            <p className="text-gray-600 font-medium">Processing payment...</p>
-            <p className="text-sm text-gray-400 mt-1">
-              Please do not close this page
-            </p>
-          </div>
+        {state.step === "checkout" && (
+          <Elements
+            stripe={stripePromise}
+            options={{ clientSecret: state.clientSecret }}
+          >
+            <CheckoutForm
+              payment={state.payment}
+              seatLabel={state.seatLabel}
+              formatPrice={formatPrice}
+              onSuccess={(reservation) =>
+                setState({ step: "success", reservation })
+              }
+              onError={(message) => setState({ step: "error", message })}
+              onCancel={() => navigate("/")}
+            />
+          </Elements>
         )}
 
         {state.step === "success" && (
@@ -185,5 +147,111 @@ export function PaymentPage() {
         )}
       </div>
     </div>
+  );
+}
+
+function CheckoutForm({
+  payment,
+  seatLabel,
+  formatPrice,
+  onSuccess,
+  onError,
+  onCancel,
+}: {
+  payment: any;
+  seatLabel: string;
+  formatPrice: (cents: number) => string;
+  onSuccess: (reservation: any) => void;
+  onError: (message: string) => void;
+  onCancel: () => void;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [processing, setProcessing] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+
+    setProcessing(true);
+
+    const { error } = await stripe.confirmPayment({
+      elements,
+      redirect: "if_required",
+    });
+
+    if (error) {
+      setProcessing(false);
+      onError(error.message || "Payment failed");
+      return;
+    }
+
+    // Payment succeeded on Stripe side -- poll for webhook to process reservation
+    const maxAttempts = 15;
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        const result = await api.getPaymentStatus(payment.id);
+        if (result.payment.status === "completed" && result.reservation) {
+          onSuccess(result.reservation);
+          return;
+        }
+        if (result.payment.status === "failed" || result.payment.status === "refunded") {
+          onError("Payment was processed but seat reservation failed.");
+          return;
+        }
+      } catch {
+        // Keep polling
+      }
+    }
+
+    onError("Payment processed but reservation is taking longer than expected. Please check back.");
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <h1 className="text-2xl font-bold text-center mb-6">Confirm Payment</h1>
+
+      <div className="bg-gray-50 rounded-lg p-4 mb-6">
+        <div className="flex justify-between mb-2">
+          <span className="text-gray-600">Seat</span>
+          <span className="font-semibold">{seatLabel}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-600">Amount</span>
+          <span className="font-semibold">
+            {formatPrice(payment.amount)}
+          </span>
+        </div>
+      </div>
+
+      <div className="mb-6">
+        <PaymentElement options={{ layout: "tabs" }} />
+      </div>
+
+      {processing ? (
+        <div className="text-center">
+          <div className="animate-spin w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-3" />
+          <p className="text-gray-600 text-sm">Processing payment...</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <button
+            type="submit"
+            disabled={!stripe || !elements}
+            className="w-full py-3 px-4 bg-green-600 text-white rounded-md hover:bg-green-700 font-semibold transition-colors disabled:opacity-50"
+          >
+            Pay {formatPrice(payment.amount)}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="w-full py-2 px-4 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+    </form>
   );
 }
